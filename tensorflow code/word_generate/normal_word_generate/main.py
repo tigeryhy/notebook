@@ -42,8 +42,10 @@ tf.flags.DEFINE_string("train_file", "datas/raw.txt",
                 "train_file")
 tf.flags.DEFINE_string("logdir", "logdir",
                 "logdir")
-tf.flags.DEFINE_string("head", "None",
+tf.flags.DEFINE_string("head", None,
                 "head")
+tf.flags.DEFINE_string("poem_first", None,
+                "poem_first")
 tf.flags.DEFINE_integer("batch_size", 10,
                 "batch size")
 tf.flags.DEFINE_integer("time_steps", 2,
@@ -64,6 +66,7 @@ class SimpleConfig(object):
     learning_rate = tf.flags.FLAGS.learning_rate
     logdir = tf.flags.FLAGS.logdir
     head = tf.flags.FLAGS.head
+    poem_first = tf.flags.FLAGS.poem_first
     
 def run_train(config,datasets_,run_iter,end_points,input_data,output_targets,inited=False):
     
@@ -115,7 +118,8 @@ def run_train(config,datasets_,run_iter,end_points,input_data,output_targets,ini
         print("saving check point")
 
 def to_word(predict, vocabs):
-    '''
+    ''' 
+    print predict
     predict = predict[0]
     #print(predict)
     maxi = 0
@@ -124,6 +128,7 @@ def to_word(predict, vocabs):
         if predict[i] > maxvalue:
             maxvalue = predict[i]
             maxi = i
+    print maxi,maxvalue,vocabs[maxi]
     return vocabs[maxi]
     '''
     t = np.cumsum(predict)
@@ -132,10 +137,10 @@ def to_word(predict, vocabs):
     if sample > len(vocabs):
         sample = len(vocabs) - 1
     return vocabs[sample]
-    
+     
 
 
-def run_predict(config,datasets_,end_points,input_data,max_len = 100,head=None):
+def run_predict(config,datasets_,end_points,input_data,max_len = 500,head=None,poem_first=None):
     batch_size = 1
     word2id = datasets_.word_to_id_dict
 
@@ -163,6 +168,10 @@ def run_predict(config,datasets_,end_points,input_data,max_len = 100,head=None):
             if word == '。':
                 head_flag = True
 
+            if poem_first != None and head_index < len(poem_first):
+                word = poem_first[head_index]
+                head_index += 1
+
             generated_words += word
             x = np.zeros((1, 1))
             x[0, 0] = word2id[word]
@@ -174,14 +183,20 @@ def run_predict(config,datasets_,end_points,input_data,max_len = 100,head=None):
 def main(_):
     fopen = open("test.out",'w')
     config = SimpleConfig()
-    head = config.head.decode('utf-8')
+    head = ""
+    if config.head != None:
+        head = config.head.decode('utf-8')
+
+    poem_first = ""
+    if config.poem_first != None:
+        poem_first = config.poem_first.decode('utf-8') + "，"
+
     
     #datasets_ = datasets.WordGenerateInput(config.batch_size,config.time_steps,config.train_file)
     datasets_ = datasets_poem.PoemGenerateInput(config.batch_size,config.train_file)
     word2id = datasets_.word_to_id_dict
-    for word in head:
+    for word in poem_first:
         print word,word2id[word]
-    return
     input_data = tf.placeholder(tf.int32, [config.batch_size, None])
     output_targets = tf.placeholder(tf.int32, [config.batch_size, None])
     end_points = model.rnn_model("lstm",input_data,output_targets,datasets_.vocab_size,batch_size=config.batch_size,reused=False)
@@ -194,11 +209,14 @@ def main(_):
     if config.run_type == 'train':
         for i in range(config.max_iter):
             run_train(config,datasets_,20,end_points,input_data,output_targets)
-            predict_result = run_predict(config,datasets_,predict_end_points,predict_input_data,head=head)
+            predict_result = run_predict(config,datasets_,predict_end_points,predict_input_data)
             print("generated words : %s" % predict_result)
             fopen.write("generated words : %s\n" % predict_result)
     else:
-        print("generated words : %s" % run_predict(config,datasets_,predict_end_points,predict_input_data,head=head))
+        if head != "":
+            print("head generated words : %s" % run_predict(config,datasets_,predict_end_points,predict_input_data,head=head))
+        elif poem_first != "" :
+            print("poem_first generated words : %s" % run_predict(config,datasets_,predict_end_points,predict_input_data,poem_first=poem_first))
     fopen.close()
 
 if __name__ == '__main__':
