@@ -80,6 +80,7 @@ class Sequence2SequanceModel(object):
             self.targets_decoder_pl = tf.placeholder(dtype=tf.int32, shape=[self.batch_size,None])
             # self.targets_weight = tf.placeholder(dtype=tf.float32, shape=[self.batch_size,self.tone_size+1])
             input_decoder_pl_trans = tf.transpose(self.input_decoder_pl,[1,0])
+            targets_decoder_pl_trans = tf.transpose(self.targets_decoder_pl,[1,0])
             batch_size = self.batch_size
             #encoder
             initial_state_forward = self.cell_forward.zero_state(batch_size, tf.float32)
@@ -173,7 +174,7 @@ class Sequence2SequanceModel(object):
                     return c,a
 
             gen_output = tensor_array_ops.TensorArray(dtype=tf.float32,
-                                        size=decoder_time_steps,
+                                        size=decoder_time_steps-1,
                                         tensor_array_name="gen_output")
 
             decoder_embedding_tensor_array = tensor_array_ops.TensorArray(dtype=tf.float32,
@@ -217,17 +218,19 @@ class Sequence2SequanceModel(object):
                 return i + 1, s_now, gen_output, c
 
             _,last_statu,gen_output,_= control_flow_ops.while_loop(
-                cond = lambda i,*_ : i < decoder_time_steps, 
+                cond = lambda i,*_ : i < decoder_time_steps - 1, 
                 body = _decoder_rnn_recurrence,
                 loop_vars = (0,forward_statu,gen_output,atten)
             )
             
-            softmax= tf.transpose(gen_output.stack(),[1,0,2]) #[batch_size, decoder_time_steps, vol_size]
-            onehot = tf.one_hot(tf.reshape(self.targets_decoder_pl, [-1]), self.vocab_size, 1.0, 0.0)
+            #softmax= tf.transpose(gen_output.stack(),[1,0,2]) #[batch_size, decoder_time_steps, vol_size]
+            softmax = gen_output.stack()
+            
+            onehot = tf.one_hot(tf.reshape(targets_decoder_pl_trans[:-1], [-1]), self.vocab_size, 1.0, 0.0)
             log_value = tf.log(
                         tf.clip_by_value(tf.reshape(softmax, [-1, self.vocab_size]), 1e-20, 1.0)
                         )
-            self.cost = -tf.reduce_sum(onehot * log_value) / ((self.tone_size+1) * self.batch_size)
+            self.cost = -tf.reduce_sum(onehot * log_value) / ((self.tone_size) * self.batch_size)
             self.optimizer = tf.train.AdamOptimizer(0.01)
             tvars = tf.trainable_variables()
             grads, _ = tf.clip_by_global_norm(tf.gradients(self.cost, tvars), self.max_grad_norm)
@@ -297,7 +300,7 @@ class Sequence2SequanceModel(object):
             initial_state = self.cell_decoder.zero_state(batch_size, tf.float32)
 
             gen_output_simple = tensor_array_ops.TensorArray(dtype=tf.float32,
-                                        size=decoder_time_steps,
+                                        size=decoder_time_steps-1,
                                         tensor_array_name="gen_output_simple")
             def _singel_decoder_rnn_recurrence(i, s_pre, gen_output_simple):
                 xt = decoder_embedding_tensor_array.read(i)
@@ -315,16 +318,17 @@ class Sequence2SequanceModel(object):
                 
             
             _,last_statu_single,gen_output_simple = control_flow_ops.while_loop(
-                cond = lambda i,*_ : i < decoder_time_steps,
+                cond = lambda i,*_ : i < decoder_time_steps-1,
                 body = _singel_decoder_rnn_recurrence,
                 loop_vars = (0,initial_state, gen_output_simple)
             )
-            softmax_single= tf.transpose(gen_output_simple.stack(),[1,0,2]) #[batch_size, decoder_time_steps, vol_size]
-            onehot_single = tf.one_hot(tf.reshape(self.targets_decoder_pl, [-1]), self.vocab_size, 1.0, 0.0)
+            #softmax_single= tf.transpose(gen_output_simple.stack(),[1,0,2]) #[batch_size, decoder_time_steps, vol_size]
+            softmax_single = gen_output_simple.stack()
+            onehot_single = tf.one_hot(tf.reshape(targets_decoder_pl_trans[:-1], [-1]), self.vocab_size, 1.0, 0.0)
             log_value_single = tf.log(
                         tf.clip_by_value(tf.reshape(softmax_single, [-1, self.vocab_size]), 1e-20, 1.0)
                         )
-            self.cost_single = -tf.reduce_sum(onehot_single * log_value_single) / ((self.tone_size+1) * self.batch_size)
+            self.cost_single = -tf.reduce_sum(onehot_single * log_value_single) / ((self.tone_size) * self.batch_size)
             tvars_single = tf.trainable_variables()
             grads_single, _ = tf.clip_by_global_norm(tf.gradients(self.cost_single, tvars_single), self.max_grad_norm)
             self.train_op_single = self.optimizer.apply_gradients(zip(grads_single, tvars_single))

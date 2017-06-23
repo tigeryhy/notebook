@@ -1,0 +1,4 @@
+datas/
+logdir/
+*DS_Store*
+*.pyc
