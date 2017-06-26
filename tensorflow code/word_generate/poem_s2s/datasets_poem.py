@@ -61,11 +61,15 @@ class PoemGenerateInput(object):
         self.data_ids = []
         with tf.gfile.GFile(data_file, "r") as f:
             for line in  f.readlines():
-                line = line.decode("utf-8").replace("\n", "").split("\t")[3]
+                line = line.decode("utf-8").replace("\n", "").split("\t")[3].replace("；","")
                 if len(line) < 5:
                     continue
-                poem = [start_token] + [word for word in line] #5 * (poem_length+1)
-                if len(poem) != 33:
+                poem = [word for word in line] #5 * (poem_length+1)
+                if len(poem) != 28:
+                    poems = ""
+                    for word in poem:
+                        poems += word
+                    #print poems
                     continue
                 self.data_ids.append([self.word2id[word] for word in poem])
 
@@ -79,11 +83,10 @@ class PoemGenerateInput(object):
         self.length_set_id = 0
         self.batch_index = 0
         for poem_ids in self.data_ids:
-            tmp_poem_length = poem_length + 1
-            self.length_ids[poem_length].append((poem_ids[0:tmp_poem_length],poem_ids[0:tmp_poem_length]))
-            self.length_ids[poem_length*2].append((poem_ids[0:tmp_poem_length],poem_ids[tmp_poem_length:tmp_poem_length*2]))
-            self.length_ids[poem_length*3].append((poem_ids[0:tmp_poem_length*2],poem_ids[tmp_poem_length*2:tmp_poem_length*3]))
-            self.length_ids[poem_length*4].append((poem_ids[0:tmp_poem_length*3],poem_ids[tmp_poem_length*3:tmp_poem_length*4]))
+            self.length_ids[poem_length].append((poem_ids[0:poem_length], [self.word2id[start_token]]+poem_ids[0:poem_length]))
+            self.length_ids[poem_length*2].append((poem_ids[0:poem_length],[self.word2id[start_token]]+poem_ids[poem_length:poem_length*2]))
+            self.length_ids[poem_length*3].append((poem_ids[0:poem_length*2],[self.word2id[start_token]]+poem_ids[poem_length*2:poem_length*3]))
+            self.length_ids[poem_length*4].append((poem_ids[0:poem_length*3],[self.word2id[start_token]]+poem_ids[poem_length*3:poem_length*4]))
 
     def get_next_batch(self,batch_size):
         randomid = random.randint(0,len(self.length_set)-1)
@@ -119,7 +122,8 @@ class PoemGenerateInput(object):
         return np.array(encoder_inputs), np.array(decoder_inputs), np.array(targets), weights, randomid
 
 if __name__ == '__main__':
-    inputs = PoemGenerateInput(32,"datas/poems7_most3000.txt","datas/word2id.txt")
+    inputs = PoemGenerateInput("datas/poems7_most3000.txt","datas/word2id.txt")
+    encoder_inputs, decoder_inputs, targets, weights ,randomid= inputs.get_next_batch(1)
     for i in range(len(encoder_inputs)):
         x_result = ""
         y_result = ""
@@ -131,8 +135,6 @@ if __name__ == '__main__':
         y_result+="\n"
         for j in range(len(targets[i])):
             y_result += inputs.id2word[targets[i][j]]
-        # for j in range(len(weights[i])):
-        #     y_result += str(weights[i][j])
 
         print x_result
         print y_result
