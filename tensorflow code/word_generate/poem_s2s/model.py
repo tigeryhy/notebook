@@ -101,6 +101,90 @@ class LNGRUCell(rnn_cell.RNNCell):
       new_h = u * state + (1 - u) * c
     return new_h, new_h
 
+class LNBasicLSTMCell(rnn_cell.RNNCell):
+  """Basic LSTM recurrent network cell.
+  The implementation is based on: http://arxiv.org/abs/1409.2329.
+  We add forget_bias (default: 1) to the biases of the forget gate in order to
+  reduce the scale of forgetting in the beginning of the training.
+  It does not allow cell clipping, a projection layer, and does not
+  use peep-hole connections: it is the basic baseline.
+  For advanced models, please use the full LSTMCell that follows.
+  """
+
+  def __init__(self, num_units, forget_bias=1.0, input_size=None,
+               state_is_tuple=False, activation=tf.tanh):
+    """Initialize the basic LSTM cell.
+    Args:
+      num_units: int, The number of units in the LSTM cell.
+      forget_bias: float, The bias added to forget gates (see above).
+      input_size: Deprecated and unused.
+      state_is_tuple: If True, accepted and returned states are 2-tuples of
+        the `c_state` and `m_state`.  By default (False), they are concatenated
+        along the column axis.  This default behavior will soon be deprecated.
+      activation: Activation function of the inner states.
+    """
+    if not state_is_tuple:
+      print("%s: Using a concatenated state is slower and will soon be "
+                   "deprecated.  Use state_is_tuple=True.", self)
+    if input_size is not None:
+        print("%s: The input_size parameter is deprecated.", self)
+    self._num_units = num_units
+    self._forget_bias = forget_bias
+    self._state_is_tuple = state_is_tuple
+    self._activation = activation
+
+  @property
+  def state_size(self):
+    return (LSTMStateTuple(self._num_units, self._num_units)
+            if self._state_is_tuple else 2 * self._num_units)
+
+  @property
+  def output_size(self):
+    return self._num_units
+
+  def __call__(self, inputs, state, scope=None):
+    """Long short-term memory cell (LSTM)."""
+    with tf.variable_scope(scope or type(self).__name__):  # "BasicLSTMCell"
+      # Parameters of gates are concatenated into one multiply for efficiency.
+      if self._state_is_tuple:
+        c, h = state
+      else:
+        c, h = array_ops.split(state, 2, 1)
+
+      s1 = tf.get_variable("s1", shape=[4 * self._num_units], dtype=tf.float32)
+      s2 = tf.get_variable("s2", shape=[4 * self._num_units], dtype=tf.float32)
+      s3 = tf.get_variable("s3", shape=[self._num_units], dtype=tf.float32)
+
+      b1 = tf.get_variable("b1", shape=[4 * self._num_units], dtype=tf.float32)
+      b2 = tf.get_variable("b2", shape=[4 * self._num_units], dtype=tf.float32)
+      b3 = tf.get_variable("b3", shape=[self._num_units], dtype=tf.float32)
+
+      with tf.variable_scope("out_1"):
+        input_below_ = linear([inputs],4 * self._num_units, False)
+      input_below_ = ln(input_below_, s1, b1)
+      with tf.variable_scope("out_2"):
+        state_below_ = linear([h],4 * self._num_units, False)
+      state_below_ = ln(state_below_, s2, b2)
+      lstm_matrix = tf.add(input_below_, state_below_)
+
+      i, j, f, o = array_ops.split(lstm_matrix, 4, 1)
+
+      new_c = (c * tf.nn.sigmoid(f) + tf.nn.sigmoid(i) *
+               self._activation(j))
+
+      # Currently normalizing c causes lot of nan's in the model, thus commenting it out for now.
+      # new_c_ = ln(new_c, s3, b3)
+      new_c_ = new_c
+      new_h = self._activation(new_c_) * tf.nn.sigmoid(o)
+
+      if self._state_is_tuple:
+        new_state = LSTMStateTuple(new_c, new_h)
+      else:
+        new_state = tf.concat( [new_c, new_h],1)
+      return new_h, new_state
+
+
+
 class Sequence2SequanceModel(object):
     def __init__(self,model,vocab_size, rnn_size=256, num_layers=2, batch_size=64,attention_size=256,
         learning_rate=0.01,optimizer="Adam",tone_size=7,max_grad_norm=5,reuse=False,start_token="；".decode("utf-8")):
@@ -143,11 +227,13 @@ class Sequence2SequanceModel(object):
                     return tf.contrib.rnn.BasicLSTMCell
                 elif self.model == "lngru":
                     return LNGRUCell
-            self.cell_forward = tf.contrib.rnn.MultiRNNCell([new_cell()(rnn_size) for i in range(self.num_layers)], state_is_tuple=True)
+                elif self.model == "lnlstm":
+                    return LNBasicLSTMCell
+            self.cell_forward = tf.contrib.rnn.MultiRNNCell([new_cell()(rnn_size) for i in range(self.num_layers)])
 
-            self.cell_back = tf.contrib.rnn.MultiRNNCell([new_cell()(rnn_size) for i in range(self.num_layers)], state_is_tuple=True)
+            self.cell_back = tf.contrib.rnn.MultiRNNCell([new_cell()(rnn_size) for i in range(self.num_layers)])
 
-            self.cell_decoder =  tf.contrib.rnn.MultiRNNCell([new_cell()(rnn_size) for i in range(self.num_layers)], state_is_tuple=True)
+            self.cell_decoder =  tf.contrib.rnn.MultiRNNCell([new_cell()(rnn_size) for i in range(self.num_layers)])
 
             #self.cell_forward = LNGRUCell(rnn_size)
             #self.cell_back = LNGRUCell(rnn_size)
@@ -287,11 +373,11 @@ class Sequence2SequanceModel(object):
                 with tf.variable_scope("rnn_decoder"):
                     h_now,s_now = self.cell_decoder(xt_c,s_pre) # h_now = [batch_size, rnn_size]
                     #!!!!!train和gen的答案不一样！！！
+                
+                with tf.variable_scope("AttnOutputProjection"):
+                   output = linear([h_now,c], self.rnn_size, True)
                 c,a = attention(s_now,True)
-
-                #with tf.variable_scope("AttnOutputProjection"):
-                #    output = linear([h_now,c], self.rnn_size, True)
-                output = h_now
+                #output = h_now
                 with tf.variable_scope("decoder_projection"):
                     w = tf.get_variable(name="out_projection",shape=[self.rnn_size,self.vocab_size],dtype=tf.float32,initializer=tf.truncated_normal_initializer(mean=0.0,stddev=2.0/(self.rnn_size+self.vocab_size)))
                     b = tf.get_variable(name="out_bias",shape=[self.vocab_size],dtype=tf.float32,initializer=tf.truncated_normal_initializer(mean=0.0,stddev=1.0))
@@ -358,11 +444,11 @@ class Sequence2SequanceModel(object):
                     xt_c = linear([xt,c],self.rnn_size,True)
                 with tf.variable_scope("rnn_decoder",reuse=True):
                     h_now,s_now = self.cell_decoder(xt_c,s_pre) # h_now = [batch_size, rnn_size]
+                
+                with tf.variable_scope("AttnOutputProjection",reuse=True):
+                   output = linear([h_now,c], self.rnn_size, True)
+                #output = h_now
                 c,a = attention(s_now,True)
-
-                #with tf.variable_scope("AttnOutputProjection",reuse=True):
-                #    output = linear([h_now,c], self.rnn_size, True)
-                output = h_now
 
                 with tf.variable_scope("decoder_projection",reuse=True):
                     w = tf.get_variable(name="out_projection",shape=[self.rnn_size,self.vocab_size],dtype=tf.float32,initializer=tf.truncated_normal_initializer(mean=0.0,stddev=2.0/(self.rnn_size+self.vocab_size)))

@@ -278,10 +278,10 @@ def main(_):
     graph = tf.Graph()
     datasets_ = datasets_poem.PoemGenerateInput("datas/poems7_most3000.txt","datas/word2id.txt")
     with graph.as_default():
-        m = model.Sequence2SequanceModel("lngru",datasets_.vocab_size,batch_size=config.batch_size)
+        m = model.Sequence2SequanceModel("lnlstm",datasets_.vocab_size,batch_size=config.batch_size)
         m.build_attention_decoder_graph()
 
-        m_predict = model.Sequence2SequanceModel("lngru",datasets_.vocab_size,batch_size=1,reuse=True)
+        m_predict = model.Sequence2SequanceModel("lnlstm",datasets_.vocab_size,batch_size=1,reuse=True)
         m_predict.build_attention_decoder_graph()
 
     run_train(m,datasets_,graph,config,m_predict,istrain=config.is_train)
