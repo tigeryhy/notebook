@@ -153,6 +153,8 @@ class Sequence2SequanceModel(object):
             #self.cell_back = LNGRUCell(rnn_size)
             #self.cell_decoder = LNGRUCell(rnn_size)
 
+            
+
             with tf.device("/cpu:0"):
                 self.embedding = tf.get_variable('embedding',[vocab_size, rnn_size],
                     initializer=tf.random_uniform_initializer(-0.08,0.08))
@@ -249,11 +251,11 @@ class Sequence2SequanceModel(object):
                     g = v * tf.tanh(w_mult_s + u_mult_encoderout) #[batch_size,attention_length,1,attention_hidden_size]
                     g = tf.reduce_sum(g,[2, 3]) ##[batch_size,attention_length]
 
-                    a_tmp = tf.nn.softmax(g)#[batch_size,attention_length]
-                    a = tf.reshape(a_tmp,[-1,attention_length,1,1]) #[batch_size,attention_length,1,1]
+                    a1 = tf.nn.softmax(g)#[batch_size,attention_length]
+                    a = tf.reshape(a1,[-1,attention_length,1,1]) #[batch_size,attention_length,1,1]
                     ah = a * encoder_outputs_attention #[batch_size,attention_length,1,attention_hidden_size]
                     c = tf.reduce_sum(ah,[1,2]) #[batch_size,attention_hidden_size]
-                    return c,a_tmp
+                    return c,a1
 
             gen_output = tensor_array_ops.TensorArray(dtype=tf.float32,
                                         size=decoder_time_steps-1,
@@ -287,8 +289,8 @@ class Sequence2SequanceModel(object):
                     #!!!!!train和gen的答案不一样！！！
                 c,a = attention(s_now,True)
 
-                # with tf.variable_scope("AttnOutputProjection"):
-                #     output = linear([h_now,c], self.rnn_size, True)
+                #with tf.variable_scope("AttnOutputProjection"):
+                #    output = linear([h_now,c], self.rnn_size, True)
                 output = h_now
                 with tf.variable_scope("decoder_projection"):
                     w = tf.get_variable(name="out_projection",shape=[self.rnn_size,self.vocab_size],dtype=tf.float32,initializer=tf.truncated_normal_initializer(mean=0.0,stddev=2.0/(self.rnn_size+self.vocab_size)))
@@ -319,6 +321,8 @@ class Sequence2SequanceModel(object):
             self.train_op = self.optimizer.apply_gradients(zip(grads, tvars))
 
             #generator
+
+            
 
             gen_tokens_g = tensor_array_ops.TensorArray(dtype=tf.int32,
                                 size=self.tone_size+1,
@@ -356,8 +360,8 @@ class Sequence2SequanceModel(object):
                     h_now,s_now = self.cell_decoder(xt_c,s_pre) # h_now = [batch_size, rnn_size]
                 c,a = attention(s_now,True)
 
-                # with tf.variable_scope("AttnOutputProjection",reuse=True):
-                #     output = linear([h_now,c], self.rnn_size, True)
+                #with tf.variable_scope("AttnOutputProjection",reuse=True):
+                #    output = linear([h_now,c], self.rnn_size, True)
                 output = h_now
 
                 with tf.variable_scope("decoder_projection",reuse=True):

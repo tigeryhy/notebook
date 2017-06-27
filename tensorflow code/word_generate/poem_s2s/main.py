@@ -52,6 +52,8 @@ tf.flags.DEFINE_integer("max_iter", 1000,
                 "max_iter")
 tf.flags.DEFINE_float("learning_rate", 1.0,
                 "learning_rate")
+tf.flags.DEFINE_bool("is_train", True,
+                "istrain")
 
 
 class SimpleConfig(object):
@@ -65,8 +67,9 @@ class SimpleConfig(object):
     logdir = tf.flags.FLAGS.logdir
     head = tf.flags.FLAGS.head
     poem_first = tf.flags.FLAGS.poem_first
+    is_train = tf.flags.FLAGS.is_train
     
-def run_train(m,datasets_,graph,config,m_predict):
+def run_train(m,datasets_,graph,config,m_predict,istrain=True):
     
     vocab_size = datasets_.vocab_size
     print("vocab_size : %d" % vocab_size)
@@ -93,14 +96,15 @@ def run_train(m,datasets_,graph,config,m_predict):
         avg_cost = 0.0 
         while start_epoch < config.max_iter:
             encoder_inputs, decoder_inputs, targets, weights, i = datasets_.get_next_batch(config.batch_size)
-            if i == 0:
+            cost = 0.0
+            if i == 0 and istrain:
                 cost,_=  session.run([m.cost_single,m.train_op_single],feed_dict=
                                         {
                                             #m.input_encoder_pl : encoder_inputs,
                                             m.input_decoder_pl : decoder_inputs,
                                             m.targets_decoder_pl : targets
                                         })
-            else:
+            elif i!=0 and istrain:
                 cost,_=  session.run([m.cost,m.train_op],feed_dict=
                                         {
                                             m.input_encoder_pl : encoder_inputs,
@@ -113,7 +117,85 @@ def run_train(m,datasets_,graph,config,m_predict):
                 print("epoch times : %d, avg flex : %.4f" % (start_epoch,np.exp(avg_cost/cost_epoch)) )
                 avg_cost = 0.0 
             
-            if start_epoch % 10000 == 1:
+            if config.poem_first != None :
+                poem_first = config.poem_first.decode("utf-8")
+                if len(poem_first) != 7:
+                    print("first poem's length must eques 7")
+                    return
+                ids = []
+                for i in range(len(poem_first)):
+                    if word2id.has_key(poem_first[i]):
+                        ids.append(word2id[poem_first[i]])
+                    else:
+                        print("word's set has no word %s" % poem_first[i])
+                        return 
+                result = poem_first+"，"
+                gen_words = ids
+                for i in range(3):
+                    print gen_words
+                    tmp_result = result
+                    tmpout = ""
+                    start_token = word2id[datasets_poem.start_token]
+                    gen_tokens_g,gen_as,v =  session.run([m_predict.gen_tokens_g,m_predict.gen_as,m_predict.v],feed_dict=
+                                    {
+                                        m_predict.input_encoder_pl : np.reshape(gen_words,[1,-1]),
+                                        m_predict.input_decoder_pl : [[start_token]]
+                                    })
+                    gen_words_s = gen_tokens_g.reshape([-1]).tolist()[1:]
+                    for wordid in gen_words_s:
+                        result += id2word[wordid]
+                        tmpout += id2word[wordid]
+                    gen_words = gen_words + gen_words_s
+                    result += ","
+                    print("encoder words : %s" % tmp_result )
+                    print("decoder words : %s" % tmpout )
+                    #if i==1:
+                        #print("v : %s" % v)
+                        #print("gen_as : %s" % gen_as )
+                print("gen words : %s" % result)
+                
+
+            if config.head != None:
+                head = config.head.decode("utf-8")
+                length = len(head)
+                head_ids = []
+                for i in range(len(head)):
+                    if word2id.has_key(head[i]):
+                        head_ids.append(word2id[head[i]])
+                result = ""
+                for i in range(len(head_ids)):
+                    if i == 0:
+                        gen_tokens_sg =  session.run(m_predict.gen_tokens_sg,feed_dict=
+                                    {
+                                        m_predict.input_decoder_pl : [[word2id[datasets_poem.start_token],head_ids[i]]]
+                                    })
+                        gen_words = gen_tokens_sg.reshape([-1]).tolist()[1:]
+                        result = ""
+                        for wordid in gen_words:
+                            result += id2word[wordid]
+                        result += "，"
+                    else:
+                        tmp_result = result
+                        tmpout = ""
+                        gen_tokens_g,gen_as,v =  session.run([m_predict.gen_tokens_g,m_predict.gen_as,m_predict.v],feed_dict=
+                                        {
+                                            m_predict.input_encoder_pl : np.reshape(gen_words,[1,-1]),
+                                            m_predict.input_decoder_pl : [[word2id[datasets_poem.start_token],head_ids[i]]]
+                                        })
+                        gen_words_s = gen_tokens_g.reshape([-1]).tolist()[1:]
+                        for wordid in gen_words_s:
+                            result += id2word[wordid]
+                            tmpout += id2word[wordid]
+                        gen_words = gen_words + gen_words_s
+                        result += ","
+                        print("encoder words : %s" % tmp_result )
+                        print("decoder words : %s" % tmpout )
+                        if i==1:
+                        #print("v : %s" % v)
+                            print("gen_as : %s" % gen_as )
+                print("gen words : %s" % result)
+
+            if start_epoch % 10000 == 1 or istrain==False:
                 gen_tokens_sg =  session.run(m_predict.gen_tokens_sg,feed_dict=
                                     {
                                         m_predict.input_decoder_pl : [[word2id[datasets_poem.start_token]]]
@@ -126,7 +208,7 @@ def run_train(m,datasets_,graph,config,m_predict):
                 for i in range(3):
                     tmp_result = result
                     tmpout = ""
-                    gen_tokens_g,gen_as =  session.run([m_predict.gen_tokens_g,m_predict.gen_as],feed_dict=
+                    gen_tokens_g,gen_as,v =  session.run([m_predict.gen_tokens_g,m_predict.gen_as,m_predict.v],feed_dict=
                                     {
                                         m_predict.input_encoder_pl : np.reshape(gen_words,[1,-1]),
                                         m_predict.input_decoder_pl : [[word2id[datasets_poem.start_token]]]
@@ -139,7 +221,9 @@ def run_train(m,datasets_,graph,config,m_predict):
                     result += ","
                     print("encoder words : %s" % tmp_result )
                     print("decoder words : %s" % tmpout )
-                    print("gen_as : %s" % gen_as )
+                    #if i==0:
+                        #print("v : %s" % v)
+                        #print("gen_as : %s" % gen_as )
 
                 print("gen words : %s" % result)
 
@@ -200,7 +284,7 @@ def main(_):
         m_predict = model.Sequence2SequanceModel("lngru",datasets_.vocab_size,batch_size=1,reuse=True)
         m_predict.build_attention_decoder_graph()
 
-    run_train(m,datasets_,graph,config,m_predict)
+    run_train(m,datasets_,graph,config,m_predict,istrain=config.is_train)
 
 if __name__ == '__main__':
     tf.app.run()
