@@ -189,7 +189,8 @@ class Game(object):
         p1, p2 = self.board.players
         states, mcts_probs, current_players = [], [], []        
         while(1):
-            move, move_probs = player.get_action(self.board, temp=temp, return_prob=1)
+            move, move_probs = player.get_action(self.board)
+            #, temp=temp, return_prob=1)
             # store the data
             states.append(self.board.current_state())
             mcts_probs.append(move_probs)
@@ -213,12 +214,15 @@ class Game(object):
                     else:
                         print("Game end. Tie")
                 return winner, zip(states, mcts_probs, winners_z)
-            # -*- coding: utf-8 -*-
+            
 
 
 if __name__ == '__main__':
     board = Board(width=5, height=5, n_in_row=4)  
     game = Game(board)
     game.board.do_move(8)
+    print(game.board.current_state())
+    game.graphic(board,1,2)
     game.board.do_move(12)
+    print(game.board.current_state())
     game.graphic(board,1,2)
